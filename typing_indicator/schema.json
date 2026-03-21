@@ -1,0 +1,15 @@
+{
+    "enable_group": {
+        "name": "群聊启用",
+        "type": "boolean",
+        "default": false,
+        "hint": "是否在群聊中也尝试发送输入状态（通常不支持，仅作测试）"
+    },
+    "delay_seconds": {
+        "name": "延迟显示秒数",
+        "type": "number",
+        "default": 1.0,
+        "minimum": 0.0,
+        "hint": "收到消息后延迟多少秒再显示“正在输入...”。设置为 0 则立即显示。"
+    }
+}
