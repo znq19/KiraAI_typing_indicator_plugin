@@ -2,7 +2,7 @@ import asyncio
 import json
 from core.plugin import BasePlugin, logger, on, Priority
 from core.chat.message_utils import KiraMessageEvent, KiraMessageBatchEvent
-from core.provider.llm_model import LLMRequest
+from core.provider.llm_model import LLMRequest, LLMResponse
 
 
 class TypingIndicatorPlugin(BasePlugin):
@@ -10,24 +10,33 @@ class TypingIndicatorPlugin(BasePlugin):
         super().__init__(ctx, cfg)
         self.enable_group = cfg.get("enable_group", False)
         self.delay_seconds = float(cfg.get("delay_seconds", 1.0))
+        self.interval_seconds = float(cfg.get("interval_seconds", 3.0))
         self.action = "set_input_status"
-        self.params_template = {"event_type": 1}  # 1 = 对方正在输入...
-        self._delay_tasks = {}  # 会话ID -> asyncio.Task
+        self.params_template = {"event_type": 1}
+        self._delay_tasks = {}      # 会话ID -> 延时发送任务（首次）
+        self._loop_tasks = {}       # 会话ID -> 持续发送循环任务
+        self._typing_running = {}   # 会话ID -> 是否正在持续发送
 
     async def initialize(self):
-        logger.info(f"TypingIndicatorPlugin initialized: enable_group={self.enable_group}, delay={self.delay_seconds}s")
+        logger.info(
+            f"TypingIndicatorPlugin initialized: enable_group={self.enable_group}, "
+            f"delay={self.delay_seconds}s, interval={self.interval_seconds}s"
+        )
         if not hasattr(self.ctx, 'adapter_mgr'):
             logger.error("PluginContext missing 'adapter_mgr' attribute! Plugin will not work.")
 
     async def terminate(self):
-        # 取消所有未完成的延时任务
         for task in self._delay_tasks.values():
             if not task.done():
                 task.cancel()
+        for task in self._loop_tasks.values():
+            if not task.done():
+                task.cancel()
         self._delay_tasks.clear()
+        self._loop_tasks.clear()
+        self._typing_running.clear()
 
     async def send_typing(self, session: str):
-        """实际发送输入状态的核心方法"""
         parts = session.split(":")
         if len(parts) != 3:
             logger.error(f"Invalid session id: {session}")
@@ -52,7 +61,6 @@ class TypingIndicatorPlugin(BasePlugin):
         else:
             params = {"group_id": int(pid), "event_type": 1}
 
-        # 尝试通过 send_action 发送
         if hasattr(client, 'send_action') and callable(client.send_action):
             try:
                 await client.send_action(self.action, params)
@@ -63,7 +71,6 @@ class TypingIndicatorPlugin(BasePlugin):
         else:
             logger.debug("No send_action method, falling back to WebSocket")
 
-        # 回退：直接通过 WebSocket 发送 JSON
         ws = getattr(client, 'ws', None)
         if ws and hasattr(ws, 'send'):
             payload = json.dumps({"action": self.action, "params": params})
@@ -74,7 +81,6 @@ class TypingIndicatorPlugin(BasePlugin):
             except Exception as e:
                 logger.debug(f"WebSocket send failed: {e}")
 
-        # 尝试其他可能的 WebSocket 属性
         for attr in ['_ws', '_client', 'websocket']:
             ws_attr = getattr(client, attr, None)
             if ws_attr and hasattr(ws_attr, 'send'):
@@ -90,29 +96,62 @@ class TypingIndicatorPlugin(BasePlugin):
         logger.error("No working method to send typing indicator")
 
     async def _delayed_send_typing(self, session: str, delay: float):
-        """延时发送输入状态，如果延时期间被取消则不发送"""
         try:
             await asyncio.sleep(delay)
             await self.send_typing(session)
+            if session not in self._loop_tasks or self._loop_tasks[session].done():
+                self._typing_running[session] = True
+                task = asyncio.create_task(self._typing_loop(session))
+                self._loop_tasks[session] = task
         except asyncio.CancelledError:
             logger.debug(f"Typing delayed task cancelled for {session}")
+
+    async def _typing_loop(self, session: str):
+        while self._typing_running.get(session, False):
+            try:
+                await asyncio.sleep(self.interval_seconds)
+                if self._typing_running.get(session, False):
+                    await self.send_typing(session)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Typing loop error for {session}: {e}")
+        logger.debug(f"Typing loop stopped for {session}")
+
+    def _stop_typing_loop(self, session: str):
+        if session in self._typing_running:
+            self._typing_running[session] = False
+        if session in self._loop_tasks and not self._loop_tasks[session].done():
+            self._loop_tasks[session].cancel()
+        self._loop_tasks.pop(session, None)
+        self._typing_running.pop(session, None)
 
     @on.im_message(priority=Priority.HIGH)
     async def on_im_message(self, event: KiraMessageEvent):
         if event.is_group_message() and not self.enable_group:
             return
         sid = event.session.sid
-        # 取消之前的延时任务（如果有）
-        if sid in self._delay_tasks:
+
+        self._stop_typing_loop(sid)
+
+        if sid in self._delay_tasks and not self._delay_tasks[sid].done():
             self._delay_tasks[sid].cancel()
-        # 创建新的延时任务
+
         task = asyncio.create_task(self._delayed_send_typing(sid, self.delay_seconds))
         self._delay_tasks[sid] = task
-        # 任务完成后从字典中移除
         task.add_done_callback(lambda t: self._delay_tasks.pop(sid, None))
+
+    @on.llm_response(priority=Priority.HIGH)
+    async def on_llm_response(self, event: KiraMessageBatchEvent, resp: LLMResponse):
+        """当 LLM 返回响应时，如果是最终回复（无工具调用），停止持续发送循环"""
+        if event.is_group_message() and not self.enable_group:
+            return
+        sid = event.sid
+        # 如果 resp 中没有工具调用，说明这是最终回复（即将发送）
+        if not resp.tool_calls:
+            self._stop_typing_loop(sid)
+            logger.debug(f"Stopped typing loop for {sid} due to final response (no tool calls)")
 
     @on.llm_request(priority=Priority.HIGH)
     async def on_llm_request(self, event: KiraMessageBatchEvent, req: LLMRequest, *_):
-        # 如果启用了延时，并且 on_im_message 已经处理了延时，这里就不重复发送了
-        # 保留此钩子是为了兼容，但实际已由 on_im_message 处理
         pass
