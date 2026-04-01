@@ -1,8 +1,8 @@
 {
     "display_name": "Typing Indicator",
     "plugin_id": "typing_indicator",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "znq19",
-    "description": "在私聊时显示“正在输入...”状态，提升交互体验。",
+    "description": "在私聊时延时显示“正在输入...”状态，并持续到消息发送完成，提升交互体验。",
     "repo": null
 }
