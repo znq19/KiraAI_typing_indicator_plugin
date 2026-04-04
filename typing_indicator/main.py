@@ -8,7 +8,7 @@ from core.provider.llm_model import LLMRequest, LLMResponse
 class TypingIndicatorPlugin(BasePlugin):
     def __init__(self, ctx, cfg: dict):
         super().__init__(ctx, cfg)
-        self.enable_group = cfg.get("enable_group", False)
+        # 保留配置项但不再使用 enable_group（群聊强制禁用）
         self.delay_seconds = float(cfg.get("delay_seconds", 1.0))
         self.interval_seconds = float(cfg.get("interval_seconds", 3.0))
         self.action = "set_input_status"
@@ -19,7 +19,7 @@ class TypingIndicatorPlugin(BasePlugin):
 
     async def initialize(self):
         logger.info(
-            f"TypingIndicatorPlugin initialized: enable_group={self.enable_group}, "
+            f"TypingIndicatorPlugin initialized (private only): "
             f"delay={self.delay_seconds}s, interval={self.interval_seconds}s"
         )
         if not hasattr(self.ctx, 'adapter_mgr'):
@@ -43,7 +43,8 @@ class TypingIndicatorPlugin(BasePlugin):
             return
 
         adapter_name, chat_type, pid = parts
-        if chat_type == "gm" and not self.enable_group:
+        # 强制禁止群聊
+        if chat_type == "gm":
             return
 
         adapter = self.ctx.adapter_mgr.get_adapter(adapter_name)
@@ -56,10 +57,8 @@ class TypingIndicatorPlugin(BasePlugin):
             logger.error("Adapter client not available")
             return
 
-        if chat_type == "dm":
-            params = {"user_id": int(pid), "event_type": 1}
-        else:
-            params = {"group_id": int(pid), "event_type": 1}
+        # 私聊参数
+        params = {"user_id": int(pid), "event_type": 1}
 
         if hasattr(client, 'send_action') and callable(client.send_action):
             try:
@@ -128,7 +127,8 @@ class TypingIndicatorPlugin(BasePlugin):
 
     @on.im_message(priority=Priority.HIGH)
     async def on_im_message(self, event: KiraMessageEvent):
-        if event.is_group_message() and not self.enable_group:
+        # 只处理私聊
+        if event.is_group_message():
             return
         sid = event.session.sid
 
@@ -143,11 +143,10 @@ class TypingIndicatorPlugin(BasePlugin):
 
     @on.llm_response(priority=Priority.HIGH)
     async def on_llm_response(self, event: KiraMessageBatchEvent, resp: LLMResponse):
-        """当 LLM 返回响应时，如果是最终回复（无工具调用），停止持续发送循环"""
-        if event.is_group_message() and not self.enable_group:
+        # 只处理私聊
+        if event.is_group_message():
             return
         sid = event.sid
-        # 如果 resp 中没有工具调用，说明这是最终回复（即将发送）
         if not resp.tool_calls:
             self._stop_typing_loop(sid)
             logger.debug(f"Stopped typing loop for {sid} due to final response (no tool calls)")
