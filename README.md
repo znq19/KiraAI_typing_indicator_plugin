@@ -1,3 +1,7 @@
 # KiraAI_typing_indicator_plugin/私聊显示输入中插件1.2.1（可设置延迟显示、持续显示到消息发送完毕）
+
+该插件已整合至KiraAI官方QQ增强插件并得到开发者@xxynet更优秀的代码修复：https://github.com/xxynet/kira-ai-plugin-qq-enhance
+
 napcat可用，LLoneBot因没没此接口不可用（我哭了我自己就是ll用户），AI生成回复在私聊时显示“正在输入...”状态，提升交互体验。
+
 webui内可设置收到消息后延时多少秒显示该状态，默认2秒；可设置显示该状态的循环时间，以让llm实际发送完消息前都显示该状态或间歇式显示，默认2秒。
