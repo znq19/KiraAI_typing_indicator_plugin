@@ -8,18 +8,17 @@ from core.provider.llm_model import LLMRequest, LLMResponse
 class TypingIndicatorPlugin(BasePlugin):
     def __init__(self, ctx, cfg: dict):
         super().__init__(ctx, cfg)
-        # 保留配置项但不再使用 enable_group（群聊强制禁用）
         self.delay_seconds = float(cfg.get("delay_seconds", 1.0))
         self.interval_seconds = float(cfg.get("interval_seconds", 3.0))
         self.action = "set_input_status"
         self.params_template = {"event_type": 1}
-        self._delay_tasks = {}      # 会话ID -> 延时发送任务（首次）
-        self._loop_tasks = {}       # 会话ID -> 持续发送循环任务
-        self._typing_running = {}   # 会话ID -> 是否正在持续发送
+        self._delay_tasks = {}
+        self._loop_tasks = {}
+        self._typing_running = {}
 
     async def initialize(self):
         logger.info(
-            f"TypingIndicatorPlugin initialized (private only): "
+            f"TypingIndicatorPlugin initialized (QQ only): "
             f"delay={self.delay_seconds}s, interval={self.interval_seconds}s"
         )
         if not hasattr(self.ctx, 'adapter_mgr'):
@@ -43,7 +42,7 @@ class TypingIndicatorPlugin(BasePlugin):
             return
 
         adapter_name, chat_type, pid = parts
-        # 强制禁止群聊
+        # 群聊不发送
         if chat_type == "gm":
             return
 
@@ -52,18 +51,24 @@ class TypingIndicatorPlugin(BasePlugin):
             logger.error(f"Adapter '{adapter_name}' not found")
             return
 
+        # 关键修改：只处理 QQ 适配器
+        platform = getattr(adapter.info, 'platform', '').lower()
+        if platform != 'qq':
+            logger.debug(f"Skip typing for non-QQ adapter: {platform}")
+            return
+
         client = adapter.get_client()
         if not client:
             logger.error("Adapter client not available")
             return
 
-        # 私聊参数
+        # 私聊参数（QQ 要求 user_id 为 int）
         params = {"user_id": int(pid), "event_type": 1}
 
         if hasattr(client, 'send_action') and callable(client.send_action):
             try:
                 await client.send_action(self.action, params)
-                logger.debug(f"Typing sent via send_action('{self.action}') to {session}")
+                logger.debug(f"Typing sent via send_action to {session}")
                 return
             except Exception as e:
                 logger.debug(f"send_action failed: {e}")
@@ -127,7 +132,6 @@ class TypingIndicatorPlugin(BasePlugin):
 
     @on.im_message(priority=Priority.HIGH)
     async def on_im_message(self, event: KiraMessageEvent):
-        # 只处理私聊
         if event.is_group_message():
             return
         sid = event.session.sid
@@ -143,7 +147,6 @@ class TypingIndicatorPlugin(BasePlugin):
 
     @on.llm_response(priority=Priority.HIGH)
     async def on_llm_response(self, event: KiraMessageBatchEvent, resp: LLMResponse):
-        # 只处理私聊
         if event.is_group_message():
             return
         sid = event.sid
