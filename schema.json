@@ -1,16 +1,23 @@
 {
-    "delay_seconds": {
+    "typing_delay_seconds": {
         "name": "首次延时（秒）",
-        "type": "number",
+        "type": "float",
         "default": 2.0,
         "minimum": 0,
         "hint": "收到消息后延迟多少秒显示“正在输入...”。设为 0 则立即显示。"
     },
-    "interval_seconds": {
+    "typing_interval_seconds": {
         "name": "持续发送间隔（秒）",
-        "type": "number",
-        "default": 2,
+        "type": "float",
+        "default": 2.0,
         "minimum": 0.5,
-        "hint": "首次显示后，每隔此时间重新发送一次“正在输入...”，直到回复发出。设为 0 则只发送一次。"
+        "hint": "首次显示后，每隔此时间重新发送一次“正在输入...”，直到回复发出。"
+    },
+    "typing_max_seconds": {
+        "name": "最大持续时长（秒）",
+        "type": "float",
+        "default": 90.0,
+        "minimum": 0,
+        "hint": "输入指示最长持续时间，超时强制停止。用于模型/工具异常、掉线等无最终回复时的兜底。设为 0 表示不限制（不推荐）。"
     }
 }
