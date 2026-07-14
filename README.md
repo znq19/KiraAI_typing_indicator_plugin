@@ -1,5 +1,7 @@
 # KiraAI_typing_indicator_plugin / 私聊显示输入中插件 1.3.0
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/znq19/KiraAI_typing_indicator_plugin)
+
 该插件已整合至 KiraAI 官方 QQ 增强插件并得到开发者 @xxynet 更优秀的代码修改：https://github.com/xxynet/kira-ai-plugin-qq-enhance
 
 AI 生成回复在私聊时显示“正在输入...”状态，提升交互体验。需要OneBot程序有相应接口。
